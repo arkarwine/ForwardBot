@@ -23,7 +23,6 @@ class Settings:
     bot_token: str
     owner_ids: set[int]
     default_user_session: str
-    default_target_chat: str | None
     db_path: Path
     session_dir: Path
     download_dir: Path
@@ -40,8 +39,6 @@ class Settings:
         if missing:
             raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
 
-        default_target = os.getenv("DEFAULT_TARGET_CHAT", "").strip() or None
-
         return cls(
             api_id=int(os.environ["API_ID"]),
             api_hash=os.environ["API_HASH"],
@@ -49,7 +46,6 @@ class Settings:
             owner_ids=_csv_ints(os.getenv("OWNER_IDS", "")),
             default_user_session=os.getenv("DEFAULT_USER_SESSION", "default").strip()
             or "default",
-            default_target_chat=default_target,
             db_path=Path(os.getenv("DB_PATH", "data/forwardbot.sqlite3")),
             session_dir=Path(os.getenv("SESSION_DIR", "sessions")),
             download_dir=Path(os.getenv("DOWNLOAD_DIR", "downloads")),

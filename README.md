@@ -35,15 +35,16 @@ py -m venv .venv
 ## Commands
 
 - `/start` - show help.
-- `/copy <message-link> [target-chat-id]` - copy/send the linked message.
-- `/login [session-name]` - create or refresh a user session.
-- `/sessions` - list known user sessions.
-- `/join <invite-link> [session-name]` - join a private source with a user session.
+- `/copy MESSAGE_LINK` - copy/send a public linked message to the chat where the command was used. Owners can also use private internal links.
+- `/login [session-name]` - owner-only; create or refresh a user session.
+- `/sessions` - owner-only; list known user sessions.
+- `/join INVITE_LINK [session-name]` - owner-only; join a private source with a user session.
 - `/cancel` - cancel an active login/copy flow.
 
 ## Notes
 
 - User login prompts only work in private chat with an owner.
+- Non-owners can use `/copy` for public links like `https://t.me/channel/123`. Private `t.me/c/...` links stay owner-only.
 - The bot deletes phone/code/password prompt replies when possible.
-- For private `t.me/c/...` links, Telegram links do not include enough information for an account that is not already in the chat. Use `/join <invite>` first or `/login` an account that is already a member.
+- For private `t.me/c/...` links, Telegram links do not include enough information for an account that is not already in the chat. Use `/join INVITE_LINK` first or `/login` an account that is already a member.
 - Bots cannot bypass Telegram access control. The fallback user session must be a legitimate member or must successfully join via invite.

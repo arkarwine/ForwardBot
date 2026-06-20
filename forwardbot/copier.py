@@ -49,7 +49,7 @@ async def copy_message(
             if link.is_private_internal:
                 raise CopyError(
                     "That private link is not accessible to the bot or default user session. "
-                    "Use /join <invite-link> or /login an account that is already in the source.",
+                    "Use /join INVITE_LINK or /login an account that is already in the source.",
                     needs_private_help=True,
                 ) from exc
             raise CopyError(

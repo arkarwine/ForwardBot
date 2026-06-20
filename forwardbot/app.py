@@ -68,10 +68,10 @@ def run() -> None:
     @bot.on_message(filters.command(["start", "help"]))
     async def start_handler(_: Client, message: Message) -> None:
         await message.reply_text(
-            "Send /copy <message-link> to copy a Telegram message here.\n\n"
+            "Send /copy MESSAGE_LINK to copy a Telegram message here.\n\n"
             "Owner tools:\n"
             "/login [session-name] - login a user session\n"
-            "/join <invite-link> [session-name] - join a private source\n"
+            "/join INVITE_LINK [session-name] - join a private source\n"
             "/sessions - list sessions\n"
             "/cancel - cancel the current flow"
         )
@@ -144,7 +144,7 @@ def run() -> None:
 
         parts = (message.text or "").split()
         if len(parts) < 2:
-            await message.reply_text("Usage: /join <invite-link> [session-name]")
+            await message.reply_text("Usage: /join INVITE_LINK [session-name]")
             return
 
         invite_link = parts[1].strip()
@@ -161,18 +161,23 @@ def run() -> None:
 
     @bot.on_message(filters.command("copy"))
     async def copy_handler(_: Client, message: Message) -> None:
-        if not await require_owner(message):
-            return
-        parts = (message.text or "").split(maxsplit=2)
+        parts = (message.text or "").split(maxsplit=1)
         if len(parts) < 2:
-            await message.reply_text("Usage: /copy <message-link> [target-chat-id]")
+            await message.reply_text("Usage: /copy MESSAGE_LINK")
             return
 
-        target_chat = parts[2].strip() if len(parts) > 2 else settings.default_target_chat or message.chat.id
+        target_chat = message.chat.id
         try:
             link = parse_message_link(parts[1])
         except ValueError as exc:
             await message.reply_text(str(exc))
+            return
+
+        if link.is_private_internal and not is_owner(message):
+            await message.reply_text(
+                "Private group/channel links are owner-only. "
+                "Public links like https://t.me/channel/123 are available to everyone."
+            )
             return
 
         job_id = db.create_job(message.from_user.id, link.raw, str(target_chat))
