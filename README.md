@@ -1,32 +1,43 @@
 # ForwardBot
 
-A Kurigram + SQLite Telegram bot that copies messages from Telegram message links and sends them to the command sender's private chat, with guided fallback flows when the bot cannot access the source.
+A Kurigram + SQLite Telegram bot that clones Telegram message links and sends the result to the command sender's private chat.
 
-## What it handles
+## Flow
 
-- Public links like `https://t.me/channel/123`.
-- Private internal links like `https://t.me/c/123456789/123` when an authorized user session can access the chat.
-- Bot-accessible messages using `copy_message` first.
-- Protected or restricted-save messages by downloading through an authorized user session and re-uploading through the bot.
-- Private channel/group cases where the bot is not a member:
-  - Join a source via invite link using a user session.
-  - Create/login a user session in-chat with phone, code, and 2FA prompts.
-  - Register multiple user sessions and choose one for private sources.
+Public link:
 
-Use this only for chats and content you are authorized to access and redistribute.
+```text
+user: /copy https://t.me/gemini12pro/159438
+bot: reads it with DEFAULT_USER_SESSION_STRING, clones it, and DMs the cloned message back
+```
+
+Private link:
+
+```text
+user: /copy https://t.me/c/123456789/42
+bot: asks for access method
+```
+
+Private access options:
+
+- `Use invite link` - the user sends an invite link; the bot joins with the default session, then clones the linked message.
+- `Login member account` - the user logs in through a guided Kurigram conversation; the bot uses that temporary member session to clone the linked message.
+
+The standalone `/login` command has intentionally been removed. Login only appears when a private link needs a member account.
 
 ## Setup
 
 1. Create a Telegram API app at `https://my.telegram.org`.
-2. Copy `.env.example` to `.env` and fill `API_ID`, `API_HASH`, `BOT_TOKEN`, and `OWNER_IDS`.
-3. Install dependencies:
+2. Copy `.env.example` to `.env`.
+3. Fill `API_ID`, `API_HASH`, `BOT_TOKEN`, and `DEFAULT_USER_SESSION_STRING`.
+4. Install dependencies:
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 ```
 
-4. Start the bot:
+5. Start the bot:
 
 ```powershell
 .\.venv\Scripts\python -m forwardbot
@@ -35,17 +46,13 @@ py -m venv .venv
 ## Commands
 
 - `/start` - show help.
-- `/copy MESSAGE_LINK` - copy/send a public linked message to the sender's private chat. Owners can also use private internal links.
-- `/login [session-name]` - owner-only; create or refresh a user session.
-- `/sessions` - owner-only; list known user sessions.
-- `/join INVITE_LINK [session-name]` - owner-only; join a private source with a user session.
-- `/cancel` - cancel an active login/copy flow.
+- `/copy MESSAGE_LINK` - clone a public or private Telegram message link.
+- `/cancel` - cancel an active private-link flow.
 
 ## Notes
 
-- User login prompts only work in private chat with an owner.
-- If `/copy` is used from a group, the sender must have opened the bot privately and pressed Start at least once so the bot can DM them.
-- Non-owners can use `/copy` for public links like `https://t.me/channel/123`. Private `t.me/c/...` links stay owner-only.
-- The bot deletes phone/code/password prompt replies when possible.
-- For private `t.me/c/...` links, Telegram links do not include enough information for an account that is not already in the chat. Use `/join INVITE_LINK` first or `/login` an account that is already a member.
-- Bots cannot bypass Telegram access control. The fallback user session must be a legitimate member or must successfully join via invite.
+- `/copy` always sends the cloned message to the sender's private chat.
+- If `/copy` is used from a group, the sender must open the bot privately and press Start once so the bot can DM them.
+- Public links require `DEFAULT_USER_SESSION_STRING`; the bot does not ask for phone numbers in the server CLI.
+- Private login flow deletes phone/code/password messages when Telegram allows it.
+- Bots and user sessions cannot bypass Telegram access control. The default session or temporary login account must legitimately be able to access the source.

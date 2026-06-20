@@ -11,6 +11,10 @@ from .db import Database
 log = logging.getLogger(__name__)
 
 
+class SessionUnavailable(Exception):
+    pass
+
+
 class SessionManager:
     def __init__(self, settings: Settings, db: Database, loop: asyncio.AbstractEventLoop) -> None:
         self.settings = settings
@@ -25,16 +29,55 @@ class SessionManager:
             raise ValueError("Session name must contain letters, numbers, dash, or underscore.")
         return safe_name
 
+    def session_file(self, name: str) -> str:
+        return str(self.settings.session_dir / f"{self.path_name(name)}.session")
+
+    def has_session_material(self, name: str) -> bool:
+        if (
+            name == self.settings.default_user_session
+            and self.settings.default_user_session_string
+        ):
+            return True
+        return self.settings.session_dir.joinpath(f"{self.path_name(name)}.session").exists()
+
     def new_client(self, name: str) -> Client:
+        session_string = None
+        if (
+            name == self.settings.default_user_session
+            and self.settings.default_user_session_string
+        ):
+            session_string = self.settings.default_user_session_string
+
         return Client(
             self.path_name(name),
             api_id=self.settings.api_id,
             api_hash=self.settings.api_hash,
             workdir=str(self.settings.session_dir),
+            session_string=session_string,
+            in_memory=bool(session_string),
+            loop=self.loop,
+        )
+
+    def new_ephemeral_client(self, name: str) -> Client:
+        return Client(
+            self.path_name(name),
+            api_id=self.settings.api_id,
+            api_hash=self.settings.api_hash,
+            in_memory=True,
             loop=self.loop,
         )
 
     async def start_saved(self) -> None:
+        if self.settings.default_user_session_string:
+            try:
+                await self.ensure_started(self.settings.default_user_session)
+            except Exception as exc:
+                log.warning(
+                    "Could not start DEFAULT_USER_SESSION_STRING for %s: %s",
+                    self.settings.default_user_session,
+                    exc,
+                )
+
         for session in self.db.list_sessions():
             try:
                 await self.ensure_started(session.name)
@@ -45,6 +88,11 @@ class SessionManager:
         existing = self._clients.get(name)
         if existing and existing.is_connected:
             return existing
+
+        if not self.has_session_material(name):
+            raise SessionUnavailable(
+                f"Session `{name}` is not available. Set DEFAULT_USER_SESSION_STRING or use the Login button."
+            )
 
         client = self.new_client(name)
         await client.start()

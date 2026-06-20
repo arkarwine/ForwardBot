@@ -12,7 +12,7 @@ from pyrogram.errors import ChannelPrivate, ChatAdminRequired, FloodWait, Messag
 from pyrogram.types import Message
 
 from .links import MessageLink
-from .sessions import SessionManager
+from .sessions import SessionManager, SessionUnavailable
 
 
 class CopyError(Exception):
@@ -101,6 +101,36 @@ async def copy_message(
     default_session_name: str,
     download_dir: Path,
 ) -> str:
+    if link.is_private_internal:
+        raise CopyError(
+            "This is a private Telegram link. Choose an access method so I can clone it.",
+            needs_private_help=True,
+        )
+
+    try:
+        user_client = await session_manager.ensure_started(default_session_name)
+    except SessionUnavailable as exc:
+        raise CopyError(
+            "Public links need DEFAULT_USER_SESSION_STRING so I can read the post as a user and clone it. "
+            "Add DEFAULT_USER_SESSION_STRING to .env, restart the bot, then try again."
+        ) from exc
+
+    try:
+        return await clone_with_client(bot, user_client, link, target_chat, download_dir)
+    except CopyError:
+        if await clone_public_web_text(bot, link, target_chat):
+            return "Cloned from Telegram's public web preview."
+        raise
+
+
+async def legacy_copy_message(
+    bot: Client,
+    session_manager: SessionManager,
+    link: MessageLink,
+    target_chat: str | int,
+    default_session_name: str,
+    download_dir: Path,
+) -> str:
     try:
         copied = await bot.copy_message(
             chat_id=target_chat,
@@ -130,7 +160,7 @@ async def copy_message(
             if link.is_private_internal:
                 raise CopyError(
                     "That private link is not accessible to the bot or default user session. "
-                    "Use /join INVITE_LINK or /login an account that is already in the source.",
+                    "Choose the invite-link button or login a member account from the private-link flow.",
                     needs_private_help=True,
                 ) from exc
             raise CopyError(
@@ -162,6 +192,46 @@ async def copy_message(
 
         await reupload_message(bot, source_message, target_chat, download_dir)
         return "Downloaded with the user session and re-uploaded with the bot."
+
+
+async def clone_with_client(
+    bot: Client,
+    user_client: Client,
+    link: MessageLink,
+    target_chat: str | int,
+    download_dir: Path,
+) -> str:
+    try:
+        source_message = await user_client.get_messages(link.chat_ref, link.message_id)
+    except (ChannelPrivate, PeerIdInvalid) as exc:
+        raise CopyError(
+            "That account cannot access the source chat yet. If this is private, join with an invite link "
+            "or login an account that is already a member."
+        ) from exc
+    except MessageIdInvalid as exc:
+        raise CopyError("I reached the chat, but Telegram says that message id does not exist.") from exc
+    except FloodWait as exc:
+        raise CopyError(f"Telegram rate-limited this account. Try again in {exc.value} seconds.") from exc
+    except RPCError as exc:
+        raise CopyError(f"Telegram refused to fetch the message: {exc}") from exc
+
+    if not source_message:
+        raise CopyError("Telegram returned no message for that link.")
+
+    if _message_empty(source_message):
+        raise CopyError(
+            "Telegram returned an empty message object for that link. The post may be deleted, hidden, "
+            "or not visible to this user account."
+        )
+
+    if getattr(source_message, "media_group_id", None):
+        group = await user_client.get_media_group(link.chat_ref, link.message_id)
+        for item in group:
+            await reupload_message(bot, item, target_chat, download_dir)
+        return "Cloned the album."
+
+    await reupload_message(bot, source_message, target_chat, download_dir)
+    return "Cloned the message."
 
 
 async def clone_public_web_text(bot: Client, link: MessageLink, target_chat: str | int) -> bool:
@@ -208,7 +278,7 @@ async def _get_default_user_client(
     except Exception as exc:
         raise CopyError(
             "The bot could not access the source, and the default user session is not logged in. "
-            f"Run /login {default_session_name} first.",
+            f"Set DEFAULT_USER_SESSION_STRING for {default_session_name} or use the Login button for private links.",
         ) from exc
 
 
