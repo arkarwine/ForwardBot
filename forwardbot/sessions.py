@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from pyrogram import Client
@@ -11,9 +12,10 @@ log = logging.getLogger(__name__)
 
 
 class SessionManager:
-    def __init__(self, settings: Settings, db: Database) -> None:
+    def __init__(self, settings: Settings, db: Database, loop: asyncio.AbstractEventLoop) -> None:
         self.settings = settings
         self.db = db
+        self.loop = loop
         self.settings.session_dir.mkdir(parents=True, exist_ok=True)
         self._clients: dict[str, Client] = {}
 
@@ -29,6 +31,7 @@ class SessionManager:
             api_id=self.settings.api_id,
             api_hash=self.settings.api_hash,
             workdir=str(self.settings.session_dir),
+            loop=self.loop,
         )
 
     async def start_saved(self) -> None:

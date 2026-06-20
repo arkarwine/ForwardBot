@@ -35,13 +35,16 @@ class LoginFlow:
 
 def run() -> None:
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     settings = Settings.load()
     settings.download_dir.mkdir(parents=True, exist_ok=True)
     settings.session_dir.mkdir(parents=True, exist_ok=True)
 
     db = Database(settings.db_path)
     db.init()
-    sessions = SessionManager(settings, db)
+    sessions = SessionManager(settings, db, loop)
 
     bot = Client(
         "forwardbot",
@@ -49,6 +52,7 @@ def run() -> None:
         api_hash=settings.api_hash,
         bot_token=settings.bot_token,
         workdir=str(settings.session_dir),
+        loop=loop,
     )
     login_flows: dict[int, LoginFlow] = {}
 
@@ -293,7 +297,10 @@ def run() -> None:
             await sessions.stop_all()
             await bot.stop()
 
-    asyncio.run(main())
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.close()
 
 
 def normalize_phone(value: str) -> str:
