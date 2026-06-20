@@ -30,6 +30,7 @@ The standalone `/login` command has intentionally been removed. Login only appea
 1. Create a Telegram API app at `https://my.telegram.org`.
 2. Copy `.env.example` to `.env`.
 3. Fill `API_ID`, `API_HASH`, `BOT_TOKEN`, and `DEFAULT_USER_SESSION_STRING`.
+   The bot now fails to start if `DEFAULT_USER_SESSION_STRING` is missing.
 4. Install dependencies:
 
 ```powershell
@@ -53,6 +54,7 @@ py -m venv .venv
 
 - `/copy` always sends the cloned message to the sender's private chat.
 - If `/copy` is used from a group, the sender must open the bot privately and press Start once so the bot can DM them.
+- `DEFAULT_USER_SESSION_STRING` is mandatory at startup.
 - Public links require `DEFAULT_USER_SESSION_STRING`; the bot does not ask for phone numbers in the server CLI.
 - Private login flow deletes phone/code/password messages when Telegram allows it.
 - Bots and user sessions cannot bypass Telegram access control. The default session or temporary login account must legitimately be able to access the source.

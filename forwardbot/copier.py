@@ -2,13 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import html
+import mimetypes
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from pyrogram import Client
-from pyrogram.errors import ChannelPrivate, ChatAdminRequired, FloodWait, MessageIdInvalid, PeerIdInvalid, RPCError
+from pyrogram.errors import (
+    ChannelPrivate,
+    ChatAdminRequired,
+    FloodWait,
+    MessageIdInvalid,
+    PeerIdInvalid,
+    RPCError,
+)
 from pyrogram.types import Message
 
 from .links import MessageLink
@@ -116,7 +125,9 @@ async def copy_message(
         ) from exc
 
     try:
-        return await clone_with_client(bot, user_client, link, target_chat, download_dir)
+        return await clone_with_client(
+            bot, user_client, link, target_chat, download_dir
+        )
     except CopyError:
         if await clone_public_web_text(bot, link, target_chat):
             return "Cloned from Telegram's public web preview."
@@ -141,7 +152,9 @@ async def legacy_copy_message(
             raise BotCopyReturnedEmpty("Telegram returned an empty copy result.")
         return "Copied with the bot."
     except FloodWait as exc:
-        raise CopyError(f"Telegram asked to wait {exc.value} seconds. Try again shortly.") from exc
+        raise CopyError(
+            f"Telegram asked to wait {exc.value} seconds. Try again shortly."
+        ) from exc
     except (
         BotCopyReturnedEmpty,
         ChannelPrivate,
@@ -150,12 +163,18 @@ async def legacy_copy_message(
         ChatAdminRequired,
         RPCError,
     ) as bot_exc:
-        if isinstance(bot_exc, BotCopyReturnedEmpty) and await clone_public_web_text(bot, link, target_chat):
+        if isinstance(bot_exc, BotCopyReturnedEmpty) and await clone_public_web_text(
+            bot, link, target_chat
+        ):
             return "Cloned from Telegram's public web preview because the bot copy returned empty."
 
-        user_client = await _get_default_user_client(session_manager, default_session_name, bot_exc)
+        user_client = await _get_default_user_client(
+            session_manager, default_session_name, bot_exc
+        )
         try:
-            source_message = await user_client.get_messages(link.chat_ref, link.message_id)
+            source_message = await user_client.get_messages(
+                link.chat_ref, link.message_id
+            )
         except (ChannelPrivate, PeerIdInvalid) as exc:
             if link.is_private_internal:
                 raise CopyError(
@@ -168,10 +187,14 @@ async def legacy_copy_message(
                 "Check that the channel exists or refresh the user session with /login.",
             ) from exc
         except MessageIdInvalid as exc:
-            raise CopyError("I could access the chat, but that message id was not found.") from exc
+            raise CopyError(
+                "I could access the chat, but that message id was not found."
+            ) from exc
 
         if not source_message:
-            raise CopyError("I could access the chat, but Telegram returned no message for that id.")
+            raise CopyError(
+                "I could access the chat, but Telegram returned no message for that id."
+            )
         if _message_empty(source_message):
             if await clone_public_web_text(bot, link, target_chat):
                 return "Cloned from Telegram's public web preview because MTProto returned empty."
@@ -209,9 +232,13 @@ async def clone_with_client(
             "or login an account that is already a member."
         ) from exc
     except MessageIdInvalid as exc:
-        raise CopyError("I reached the chat, but Telegram says that message id does not exist.") from exc
+        raise CopyError(
+            "I reached the chat, but Telegram says that message id does not exist."
+        ) from exc
     except FloodWait as exc:
-        raise CopyError(f"Telegram rate-limited this account. Try again in {exc.value} seconds.") from exc
+        raise CopyError(
+            f"Telegram rate-limited this account. Try again in {exc.value} seconds."
+        ) from exc
     except RPCError as exc:
         raise CopyError(f"Telegram refused to fetch the message: {exc}") from exc
 
@@ -234,7 +261,9 @@ async def clone_with_client(
     return "Cloned the message."
 
 
-async def clone_public_web_text(bot: Client, link: MessageLink, target_chat: str | int) -> bool:
+async def clone_public_web_text(
+    bot: Client, link: MessageLink, target_chat: str | int
+) -> bool:
     text = await fetch_public_web_text(link)
     if not text:
         return False
@@ -246,7 +275,9 @@ async def fetch_public_web_text(link: MessageLink) -> str | None:
     if link.is_private_internal or not isinstance(link.chat_ref, str):
         return None
 
-    return await asyncio.to_thread(_fetch_public_web_text_sync, link.chat_ref, link.message_id)
+    return await asyncio.to_thread(
+        _fetch_public_web_text_sync, link.chat_ref, link.message_id
+    )
 
 
 def _fetch_public_web_text_sync(username: str, message_id: int) -> str | None:
@@ -282,6 +313,90 @@ async def _get_default_user_client(
         ) from exc
 
 
+def _normalize_suffix(suffix: str | None) -> str | None:
+    if not suffix:
+        return None
+    suffix = suffix.lower()
+    if suffix == ".jpe":
+        return ".jpg"
+    return suffix
+
+
+def _suffix_from_file_name(file_name: str | None) -> str | None:
+    if not file_name:
+        return None
+    return _normalize_suffix(Path(file_name).suffix)
+
+
+def _suffix_from_mime_type(mime_type: str | None) -> str | None:
+    if not mime_type:
+        return None
+    return _normalize_suffix(mimetypes.guess_extension(mime_type, strict=False))
+
+
+def _sticker_suffix(sticker: Any) -> str:
+    if getattr(sticker, "is_animated", False):
+        return ".tgs"
+    if getattr(sticker, "is_video", False):
+        return ".webm"
+    return ".webp"
+
+
+def build_download_path(message: Message, download_dir: Path) -> Path:
+    if message.photo:
+        prefix = "photo"
+        suffix = ".jpg"
+    elif message.video:
+        prefix = "video"
+        suffix = (
+            _suffix_from_file_name(getattr(message.video, "file_name", None))
+            or _suffix_from_mime_type(getattr(message.video, "mime_type", None))
+            or ".mp4"
+        )
+    elif message.animation:
+        prefix = "animation"
+        suffix = (
+            _suffix_from_file_name(getattr(message.animation, "file_name", None))
+            or _suffix_from_mime_type(getattr(message.animation, "mime_type", None))
+            or ".mp4"
+        )
+    elif message.audio:
+        prefix = "audio"
+        suffix = (
+            _suffix_from_file_name(getattr(message.audio, "file_name", None))
+            or _suffix_from_mime_type(getattr(message.audio, "mime_type", None))
+            or ".mp3"
+        )
+    elif message.voice:
+        prefix = "voice"
+        suffix = ".ogg"
+    elif message.video_note:
+        prefix = "video_note"
+        suffix = ".mp4"
+    elif message.sticker:
+        prefix = "sticker"
+        suffix = _sticker_suffix(message.sticker)
+    elif message.document:
+        prefix = "document"
+        suffix = (
+            _suffix_from_file_name(getattr(message.document, "file_name", None))
+            or _suffix_from_mime_type(getattr(message.document, "mime_type", None))
+            or ".bin"
+        )
+    else:
+        raise CopyError("This message type is not supported for re-upload yet.")
+
+    return download_dir / f"{prefix}_{uuid4().hex}{suffix}"
+
+
+async def _download_for_reupload(message: Message, download_dir: Path) -> Path:
+    path = build_download_path(message, download_dir)
+    downloaded = await message.download(file_name=str(path))
+    if not downloaded:
+        raise CopyError("Telegram could not download the source media for re-upload.")
+    return Path(downloaded)
+
+
 async def reupload_message(
     bot: Client,
     message: Message,
@@ -291,7 +406,9 @@ async def reupload_message(
     download_dir.mkdir(parents=True, exist_ok=True)
 
     if _message_empty(message):
-        raise CopyError("Telegram returned an empty message, so there is no content to send.")
+        raise CopyError(
+            "Telegram returned an empty message, so there is no content to send."
+        )
 
     if message.text:
         await bot.send_message(target_chat, message.text, disable_web_page_preview=True)
@@ -301,39 +418,55 @@ async def reupload_message(
     kwargs: dict[str, Any] = {"caption": caption} if caption else {}
 
     if message.photo:
-        path = await message.download(file_name=str(download_dir / "photo_"))
-        await bot.send_photo(target_chat, path, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_photo(target_chat, str(path), **kwargs)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.video:
-        path = await message.download(file_name=str(download_dir / "video_"))
-        await bot.send_video(target_chat, path, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_video(target_chat, str(path), **kwargs)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.animation:
-        path = await message.download(file_name=str(download_dir / "animation_"))
-        await bot.send_animation(target_chat, path, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_animation(target_chat, str(path), **kwargs)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.audio:
-        path = await message.download(file_name=str(download_dir / "audio_"))
-        await bot.send_audio(target_chat, path, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_audio(target_chat, str(path), **kwargs)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.voice:
-        path = await message.download(file_name=str(download_dir / "voice_"))
-        await bot.send_voice(target_chat, path, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_voice(target_chat, str(path), **kwargs)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.video_note:
-        path = await message.download(file_name=str(download_dir / "video_note_"))
-        await bot.send_video_note(target_chat, path)
-        if caption:
-            await bot.send_message(target_chat, caption)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_video_note(target_chat, str(path))
+            if caption:
+                await bot.send_message(target_chat, caption)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.sticker:
-        path = await message.download(file_name=str(download_dir / "sticker_"))
-        await bot.send_sticker(target_chat, path)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_sticker(target_chat, str(path))
+        finally:
+            path.unlink(missing_ok=True)
     elif message.document:
-        path = await message.download(file_name=str(download_dir / "document_"))
-        await bot.send_document(target_chat, path, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        path = await _download_for_reupload(message, download_dir)
+        try:
+            await bot.send_document(target_chat, str(path), **kwargs)
+        finally:
+            path.unlink(missing_ok=True)
     elif message.location:
         await bot.send_location(
             target_chat,

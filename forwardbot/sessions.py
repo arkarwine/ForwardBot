@@ -16,7 +16,9 @@ class SessionUnavailable(Exception):
 
 
 class SessionManager:
-    def __init__(self, settings: Settings, db: Database, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self, settings: Settings, db: Database, loop: asyncio.AbstractEventLoop
+    ) -> None:
         self.settings = settings
         self.db = db
         self.loop = loop
@@ -26,26 +28,24 @@ class SessionManager:
     def path_name(self, name: str) -> str:
         safe_name = "".join(ch for ch in name if ch.isalnum() or ch in ("_", "-"))
         if not safe_name:
-            raise ValueError("Session name must contain letters, numbers, dash, or underscore.")
+            raise ValueError(
+                "Session name must contain letters, numbers, dash, or underscore."
+            )
         return safe_name
 
     def session_file(self, name: str) -> str:
         return str(self.settings.session_dir / f"{self.path_name(name)}.session")
 
     def has_session_material(self, name: str) -> bool:
-        if (
-            name == self.settings.default_user_session
-            and self.settings.default_user_session_string
-        ):
+        if name == self.settings.default_user_session:
             return True
-        return self.settings.session_dir.joinpath(f"{self.path_name(name)}.session").exists()
+        return self.settings.session_dir.joinpath(
+            f"{self.path_name(name)}.session"
+        ).exists()
 
     def new_client(self, name: str) -> Client:
         session_string = None
-        if (
-            name == self.settings.default_user_session
-            and self.settings.default_user_session_string
-        ):
+        if name == self.settings.default_user_session:
             session_string = self.settings.default_user_session_string
 
         return Client(
@@ -68,15 +68,14 @@ class SessionManager:
         )
 
     async def start_saved(self) -> None:
-        if self.settings.default_user_session_string:
-            try:
-                await self.ensure_started(self.settings.default_user_session)
-            except Exception as exc:
-                log.warning(
-                    "Could not start DEFAULT_USER_SESSION_STRING for %s: %s",
-                    self.settings.default_user_session,
-                    exc,
-                )
+        try:
+            await self.ensure_started(self.settings.default_user_session)
+        except Exception as exc:
+            log.warning(
+                "Could not start DEFAULT_USER_SESSION_STRING for %s: %s",
+                self.settings.default_user_session,
+                exc,
+            )
 
         for session in self.db.list_sessions():
             try:

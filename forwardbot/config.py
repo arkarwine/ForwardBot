@@ -23,7 +23,7 @@ class Settings:
     bot_token: str
     owner_ids: set[int]
     default_user_session: str
-    default_user_session_string: str | None
+    default_user_session_string: str
     db_path: Path
     session_dir: Path
     download_dir: Path
@@ -34,7 +34,12 @@ class Settings:
 
         missing = [
             key
-            for key in ("API_ID", "API_HASH", "BOT_TOKEN")
+            for key in (
+                "API_ID",
+                "API_HASH",
+                "BOT_TOKEN",
+                "DEFAULT_USER_SESSION_STRING",
+            )
             if not os.getenv(key)
         ]
         if missing:
@@ -47,8 +52,9 @@ class Settings:
             owner_ids=_csv_ints(os.getenv("OWNER_IDS", "")),
             default_user_session=os.getenv("DEFAULT_USER_SESSION", "default").strip()
             or "default",
-            default_user_session_string=os.getenv("DEFAULT_USER_SESSION_STRING", "").strip()
-            or None,
+            default_user_session_string=os.environ[
+                "DEFAULT_USER_SESSION_STRING"
+            ].strip(),
             db_path=Path(os.getenv("DB_PATH", "data/forwardbot.sqlite3")),
             session_dir=Path(os.getenv("SESSION_DIR", "sessions")),
             download_dir=Path(os.getenv("DOWNLOAD_DIR", "downloads")),
