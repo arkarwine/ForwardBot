@@ -1,6 +1,6 @@
 # ForwardBot
 
-A Kurigram + SQLite Telegram bot that copies messages from Telegram message links and sends them to a target chat, with guided fallback flows when the bot cannot access the source.
+A Kurigram + SQLite Telegram bot that copies messages from Telegram message links and sends them to the command sender's private chat, with guided fallback flows when the bot cannot access the source.
 
 ## What it handles
 
@@ -35,7 +35,7 @@ py -m venv .venv
 ## Commands
 
 - `/start` - show help.
-- `/copy MESSAGE_LINK` - copy/send a public linked message to the chat where the command was used. Owners can also use private internal links.
+- `/copy MESSAGE_LINK` - copy/send a public linked message to the sender's private chat. Owners can also use private internal links.
 - `/login [session-name]` - owner-only; create or refresh a user session.
 - `/sessions` - owner-only; list known user sessions.
 - `/join INVITE_LINK [session-name]` - owner-only; join a private source with a user session.
@@ -44,6 +44,7 @@ py -m venv .venv
 ## Notes
 
 - User login prompts only work in private chat with an owner.
+- If `/copy` is used from a group, the sender must have opened the bot privately and pressed Start at least once so the bot can DM them.
 - Non-owners can use `/copy` for public links like `https://t.me/channel/123`. Private `t.me/c/...` links stay owner-only.
 - The bot deletes phone/code/password prompt replies when possible.
 - For private `t.me/c/...` links, Telegram links do not include enough information for an account that is not already in the chat. Use `/join INVITE_LINK` first or `/login` an account that is already a member.

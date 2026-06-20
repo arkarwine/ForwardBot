@@ -68,7 +68,7 @@ def run() -> None:
     @bot.on_message(filters.command(["start", "help"]))
     async def start_handler(_: Client, message: Message) -> None:
         await message.reply_text(
-            "Send /copy MESSAGE_LINK to copy a Telegram message here.\n\n"
+            "Send /copy MESSAGE_LINK and I will send the copied message to your private chat.\n\n"
             "Owner tools:\n"
             "/login [session-name] - login a user session\n"
             "/join INVITE_LINK [session-name] - join a private source\n"
@@ -166,7 +166,13 @@ def run() -> None:
             await message.reply_text("Usage: /copy MESSAGE_LINK")
             return
 
-        target_chat = message.chat.id
+        if not message.from_user:
+            await message.reply_text(
+                "I need a visible user sender so I know which private chat should receive the copy."
+            )
+            return
+
+        target_chat = message.from_user.id
         try:
             link = parse_message_link(parts[1])
         except ValueError as exc:
@@ -192,7 +198,7 @@ def run() -> None:
                 settings.download_dir,
             )
             db.update_job(job_id, "sent", detail)
-            await status.edit_text(f"Done. {detail}")
+            await status.edit_text(f"Done. Sent to your private chat. {detail}")
         except CopyError as exc:
             db.update_job(job_id, "needs_action" if exc.needs_private_help else "failed", str(exc))
             markup = None
@@ -206,7 +212,10 @@ def run() -> None:
         except Exception as exc:
             logging.exception("copy failed")
             db.update_job(job_id, "failed", str(exc))
-            await status.edit_text(f"Copy failed: {exc}")
+            await status.edit_text(
+                f"Copy failed: {exc}\n"
+                "If this was used outside private chat, open the bot privately and press Start once."
+            )
 
     @bot.on_callback_query(filters.regex("^login_default$"))
     async def login_callback(client: Client, callback) -> None:
