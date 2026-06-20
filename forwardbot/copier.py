@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import html
+import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +21,76 @@ class CopyError(Exception):
         self.needs_private_help = needs_private_help
 
 
+class BotCopyReturnedEmpty(Exception):
+    pass
+
+
+class PublicTelegramTextParser(HTMLParser):
+    def __init__(self, target_post: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.target_post = target_post
+        self._message_depth = 0
+        self._text_depth = 0
+        self._parts: list[str] = []
+
+    @property
+    def text(self) -> str | None:
+        text = html.unescape("".join(self._parts))
+        lines = [line.strip() for line in text.splitlines()]
+        text = "\n".join(lines).strip()
+        return text or None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = dict(attrs)
+        class_names = attrs_dict.get("class", "")
+
+        if tag == "div" and "tgme_widget_message_wrap" in class_names:
+            if attrs_dict.get("data-post") == self.target_post:
+                self._message_depth = 1
+            elif self._message_depth:
+                self._message_depth += 1
+            return
+
+        if self._message_depth:
+            self._message_depth += 1
+            if tag == "div" and "tgme_widget_message_text" in class_names:
+                self._text_depth = 1
+            elif self._text_depth:
+                self._text_depth += 1
+
+        if self._text_depth and tag == "br":
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._text_depth:
+            self._text_depth -= 1
+        if self._message_depth:
+            self._message_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._text_depth:
+            if not data.strip():
+                return
+            self._parts.append(data.strip() if "\n" in data else data)
+
+    def handle_entityref(self, name: str) -> None:
+        if self._text_depth:
+            self._parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        if self._text_depth:
+            self._parts.append(f"&#{name};")
+
+
 def _message_protected(message: Message) -> bool:
     return bool(
         getattr(message, "has_protected_content", False)
         or getattr(getattr(message, "chat", None), "has_protected_content", False)
     )
+
+
+def _message_empty(message: Message) -> bool:
+    return bool(getattr(message, "empty", False))
 
 
 async def copy_message(
@@ -33,15 +102,27 @@ async def copy_message(
     download_dir: Path,
 ) -> str:
     try:
-        await bot.copy_message(
+        copied = await bot.copy_message(
             chat_id=target_chat,
             from_chat_id=link.chat_ref,
             message_id=link.message_id,
         )
+        if copied is None or _message_empty(copied):
+            raise BotCopyReturnedEmpty("Telegram returned an empty copy result.")
         return "Copied with the bot."
     except FloodWait as exc:
         raise CopyError(f"Telegram asked to wait {exc.value} seconds. Try again shortly.") from exc
-    except (ChannelPrivate, PeerIdInvalid, MessageIdInvalid, ChatAdminRequired, RPCError) as bot_exc:
+    except (
+        BotCopyReturnedEmpty,
+        ChannelPrivate,
+        PeerIdInvalid,
+        MessageIdInvalid,
+        ChatAdminRequired,
+        RPCError,
+    ) as bot_exc:
+        if isinstance(bot_exc, BotCopyReturnedEmpty) and await clone_public_web_text(bot, link, target_chat):
+            return "Cloned from Telegram's public web preview because the bot copy returned empty."
+
         user_client = await _get_default_user_client(session_manager, default_session_name, bot_exc)
         try:
             source_message = await user_client.get_messages(link.chat_ref, link.message_id)
@@ -61,6 +142,13 @@ async def copy_message(
 
         if not source_message:
             raise CopyError("I could access the chat, but Telegram returned no message for that id.")
+        if _message_empty(source_message):
+            if await clone_public_web_text(bot, link, target_chat):
+                return "Cloned from Telegram's public web preview because MTProto returned empty."
+            raise CopyError(
+                "Telegram returned this as an empty message. It may be deleted, inaccessible to the user session, "
+                "or not a normal content message."
+            )
 
         if getattr(source_message, "media_group_id", None):
             group = await user_client.get_media_group(link.chat_ref, link.message_id)
@@ -74,6 +162,40 @@ async def copy_message(
 
         await reupload_message(bot, source_message, target_chat, download_dir)
         return "Downloaded with the user session and re-uploaded with the bot."
+
+
+async def clone_public_web_text(bot: Client, link: MessageLink, target_chat: str | int) -> bool:
+    text = await fetch_public_web_text(link)
+    if not text:
+        return False
+    await bot.send_message(target_chat, text, disable_web_page_preview=True)
+    return True
+
+
+async def fetch_public_web_text(link: MessageLink) -> str | None:
+    if link.is_private_internal or not isinstance(link.chat_ref, str):
+        return None
+
+    return await asyncio.to_thread(_fetch_public_web_text_sync, link.chat_ref, link.message_id)
+
+
+def _fetch_public_web_text_sync(username: str, message_id: int) -> str | None:
+    url = f"https://t.me/s/{username}/{message_id}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 ForwardBot/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+    parser = PublicTelegramTextParser(f"{username}/{message_id}")
+    parser.feed(body)
+    return parser.text
 
 
 async def _get_default_user_client(
@@ -97,6 +219,9 @@ async def reupload_message(
     download_dir: Path,
 ) -> None:
     download_dir.mkdir(parents=True, exist_ok=True)
+
+    if _message_empty(message):
+        raise CopyError("Telegram returned an empty message, so there is no content to send.")
 
     if message.text:
         await bot.send_message(target_chat, message.text, disable_web_page_preview=True)
