@@ -214,7 +214,9 @@ def run() -> None:
             )
 
     @bot.on_callback_query(
-        filters.regex(r"^private_copy_code:(digit|backspace|clear|submit|cancel)(?::\d)?$")
+        filters.regex(
+            r"^private_copy_code:(digit|backspace|clear|submit|cancel)(?::\d)?$"
+        )
     )
     async def private_copy_code_callback(_: Client, callback: CallbackQuery) -> None:
         user_id = callback.from_user.id
@@ -395,9 +397,7 @@ def run() -> None:
             reply_markup=login_code_keyboard(flow.login_code),
         )
 
-    async def handle_login_code(
-        chat_id: int, flow: PrivateCopyFlow
-    ) -> None:
+    async def handle_login_code(chat_id: int, flow: PrivateCopyFlow) -> None:
         code = flow.login_code
         if not code:
             raise ValueError("Enter the numeric Telegram login code with the buttons.")
@@ -508,7 +508,9 @@ def login_code_keyboard(code: str) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton("0", callback_data="private_copy_code:digit:0"),
-            InlineKeyboardButton("Backspace", callback_data="private_copy_code:backspace"),
+            InlineKeyboardButton(
+                "Backspace", callback_data="private_copy_code:backspace"
+            ),
             InlineKeyboardButton("Clear", callback_data="private_copy_code:clear"),
         ]
     )
