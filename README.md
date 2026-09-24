@@ -21,7 +21,7 @@ bot: ဝင်ရောက်ခွင့်ပေးမည့်နည်းလ
 Private ဝင်ရောက်ခွင့်နည်းလမ်းများ:
 
 - `Invite link သုံးမည်` - user က invite link ပို့ပါသည်။ Bot သည် မူလ session ဖြင့် ဝင်ရောက်ပြီး လင့်ခ်ပါ message ကို ကူးယူပါသည်။
-- `Member account ဖြင့် Login` - user သည် Kurigram လမ်းညွှန်ချက်အတိုင်း login ဝင်ပါသည်။ Bot သည် ထိုယာယီ member session ဖြင့် လင့်ခ်ပါ message ကို ကူးယူပါသည်။
+- `Member account ဖြင့် Login` - user သည် Kurigram လမ်းညွှန်ချက်အတိုင်း ပထမအကြိမ် login ဝင်ပါသည်။ Bot သည် session string ကို SQLite database ထဲတွင် သိမ်းထားပြီး နောက်တစ်ကြိမ်များတွင် ထို member account ဖြင့် အလိုအလျောက် ဆက်အသုံးပြုပါသည်။
 
 သီးခြား `/login` command ကို မသုံးနိုင်အောင် ဖယ်ရှားထားပါသည်။ Private link အတွက် member account လိုအပ်သည့်အခါမှသာ Login ရွေးချယ်ခွင့် ပေါ်လာပါမည်။
 
@@ -57,4 +57,5 @@ py -m venv .venv
 - Bot စတင်ချိန်တွင် `DEFAULT_USER_SESSION_STRING` မဖြစ်မနေ လိုအပ်ပါသည်။
 - အများမြင် link များအတွက် `DEFAULT_USER_SESSION_STRING` လိုအပ်ပါသည်။ Bot သည် server CLI တွင် phone number မမေးပါ။
 - Private login လုပ်ငန်းစဉ်တွင် Telegram login code ကို chat message အဖြစ် မပို့ဘဲ inline button များဖြင့် ထည့်ရပါသည်။ Telegram ခွင့်ပြုပါက phone နှင့် password message များကို ဖျက်ပေးပါသည်။
+- Member account session string များသည် login credential ဖြစ်သောကြောင့် `DB_PATH` ဖြင့် သတ်မှတ်ထားသော SQLite database ကို လုံခြုံစွာ သိမ်းဆည်းပါ။
 - Bot နှင့် user session များသည် Telegram ၏ access control ကို ကျော်လွှား၍ မရပါ။ မူလ session သို့မဟုတ် ယာယီ login account သည် မူရင်း message ကို တရားဝင် ဝင်ရောက်ကြည့်ရှုနိုင်ရပါမည်။

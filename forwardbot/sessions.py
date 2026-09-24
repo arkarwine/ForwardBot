@@ -39,6 +39,9 @@ class SessionManager:
     def has_session_material(self, name: str) -> bool:
         if name == self.settings.default_user_session:
             return True
+        saved_session = self.db.get_session(name)
+        if saved_session and saved_session.session_string:
+            return True
         return self.settings.session_dir.joinpath(
             f"{self.path_name(name)}.session"
         ).exists()
@@ -47,6 +50,10 @@ class SessionManager:
         session_string = None
         if name == self.settings.default_user_session:
             session_string = self.settings.default_user_session_string
+        else:
+            saved_session = self.db.get_session(name)
+            if saved_session:
+                session_string = saved_session.session_string
 
         return Client(
             self.path_name(name),

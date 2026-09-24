@@ -469,7 +469,9 @@ async def reupload_media_group(
             item = _album_media(message, path)
             if item is None:
                 for uploaded_message in messages:
-                    await reupload_message(bot, uploaded_message, target_chat, download_dir)
+                    await reupload_message(
+                        bot, uploaded_message, target_chat, download_dir
+                    )
                 return
             media.append(item)
 

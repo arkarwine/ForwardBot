@@ -12,6 +12,7 @@ class UserSession:
     name: str
     owner_id: int
     phone: str | None
+    session_string: str | None
     created_at: int
     updated_at: int
 
@@ -26,12 +27,12 @@ class Database:
 
     def init(self) -> None:
         with self._lock, self._conn:
-            self._conn.executescript(
-                """
+            self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS user_sessions (
                     name TEXT PRIMARY KEY,
                     owner_id INTEGER NOT NULL,
                     phone TEXT,
+                    session_string TEXT,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
@@ -46,22 +47,41 @@ class Database:
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
-                """
-            )
+                """)
+            columns = {
+                row["name"]
+                for row in self._conn.execute("PRAGMA table_info(user_sessions)")
+            }
+            if "session_string" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE user_sessions ADD COLUMN session_string TEXT"
+                )
 
-    def upsert_session(self, name: str, owner_id: int, phone: str | None) -> None:
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def upsert_session(
+        self,
+        name: str,
+        owner_id: int,
+        phone: str | None,
+        session_string: str,
+    ) -> None:
         now = int(time())
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO user_sessions (name, owner_id, phone, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO user_sessions
+                    (name, owner_id, phone, session_string, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     phone = excluded.phone,
+                    session_string = excluded.session_string,
                     updated_at = excluded.updated_at
                 """,
-                (name, owner_id, phone, now, now),
+                (name, owner_id, phone, session_string, now, now),
             )
 
     def list_sessions(self) -> list[UserSession]:

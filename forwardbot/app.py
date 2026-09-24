@@ -141,6 +141,27 @@ def run() -> None:
         if old_flow and old_flow.client and old_flow.client.is_connected:
             await old_flow.client.disconnect()
 
+        saved_session_name = f"member_{message.from_user.id}"
+        if db.get_session(saved_session_name):
+            try:
+                saved_client = await sessions.ensure_started(saved_session_name)
+                progress = await message.reply_text(
+                    "သိမ်းထားသော member account ဖြင့် private message ကို ကူးယူနေပါသည်..."
+                )
+                detail = await clone_with_client(
+                    bot, saved_client, link, target_chat, settings.download_dir
+                )
+                await progress.edit_text(
+                    f"ပြီးပါပြီ။ သင့် private chat သို့ ပို့ပြီးပါပြီ။ {detail}"
+                )
+                return
+            except Exception as exc:
+                logging.warning(
+                    "Saved member session %s could not be used: %s",
+                    saved_session_name,
+                    exc,
+                )
+
         status = await message.reply_text(
             "ဤလင့်ခ်သည် private group/channel ဖြစ်ပါသည်။ ကူးယူရန် ဝင်ရောက်ခွင့်လိုအပ်ပါသည်။\n\n"
             "နည်းလမ်းတစ်ခု ရွေးပါ -",
@@ -417,10 +438,14 @@ def run() -> None:
     async def finish_member_login(chat_id: int, flow: PrivateCopyFlow) -> None:
         assert flow.client is not None
         me = await flow.client.get_me()
-        try:
-            flow.session_string = await flow.client.export_session_string()
-        except Exception:
-            flow.session_string = None
+        session_string = await flow.client.export_session_string()
+        flow.session_string = session_string
+        sessions.db.upsert_session(
+            name=f"member_{flow.requester_id}",
+            owner_id=flow.requester_id,
+            phone=flow.phone,
+            session_string=session_string,
+        )
 
         progress = await bot.send_message(
             chat_id,
