@@ -1,60 +1,60 @@
 # ForwardBot
 
-A Kurigram + SQLite Telegram bot that clones Telegram message links and sends the result to the command sender's private chat.
+Telegram message link များကို ကူးယူပြီး command ပို့သူ၏ private chat သို့ ရလဒ်ပို့ပေးသော Kurigram + SQLite Telegram bot ဖြစ်ပါသည်။
 
 ## Flow
 
-Public link:
+အများမြင် link:
 
 ```text
 user: /copy https://t.me/gemini12pro/159438
-bot: reads it with DEFAULT_USER_SESSION_STRING, clones it, and DMs the cloned message back
+bot: DEFAULT_USER_SESSION_STRING ဖြင့် ဖတ်ပြီး ကူးယူကာ ကူးယူထားသော message ကို DM ပြန်ပို့ပါသည်။
 ```
 
 Private link:
 
 ```text
 user: /copy https://t.me/c/123456789/42
-bot: asks for access method
+bot: ဝင်ရောက်ခွင့်ပေးမည့်နည်းလမ်းကို မေးပါသည်။
 ```
 
-Private access options:
+Private ဝင်ရောက်ခွင့်နည်းလမ်းများ:
 
-- `Use invite link` - the user sends an invite link; the bot joins with the default session, then clones the linked message.
-- `Login member account` - the user logs in through a guided Kurigram conversation; the bot uses that temporary member session to clone the linked message.
+- `Invite link သုံးမည်` - user က invite link ပို့ပါသည်။ Bot သည် မူလ session ဖြင့် ဝင်ရောက်ပြီး လင့်ခ်ပါ message ကို ကူးယူပါသည်။
+- `Member account ဖြင့် Login` - user သည် Kurigram လမ်းညွှန်ချက်အတိုင်း login ဝင်ပါသည်။ Bot သည် ထိုယာယီ member session ဖြင့် လင့်ခ်ပါ message ကို ကူးယူပါသည်။
 
-The standalone `/login` command has intentionally been removed. Login only appears when a private link needs a member account.
+သီးခြား `/login` command ကို မသုံးနိုင်အောင် ဖယ်ရှားထားပါသည်။ Private link အတွက် member account လိုအပ်သည့်အခါမှသာ Login ရွေးချယ်ခွင့် ပေါ်လာပါမည်။
 
-## Setup
+## တပ်ဆင်ခြင်း
 
-1. Create a Telegram API app at `https://my.telegram.org`.
-2. Copy `.env.example` to `.env`.
-3. Fill `API_ID`, `API_HASH`, `BOT_TOKEN`, and `DEFAULT_USER_SESSION_STRING`.
-   The bot now fails to start if `DEFAULT_USER_SESSION_STRING` is missing.
-4. Install dependencies:
+1. `https://my.telegram.org` တွင် Telegram API app တစ်ခု ဖန်တီးပါ။
+2. `.env.example` ကို `.env` အဖြစ် ကူးယူပါ။
+3. `API_ID`, `API_HASH`, `BOT_TOKEN` နှင့် `DEFAULT_USER_SESSION_STRING` တို့ကို ဖြည့်ပါ။
+   `DEFAULT_USER_SESSION_STRING` မရှိပါက bot စတင်မည်မဟုတ်ပါ။
+4. လိုအပ်သော package များကို ထည့်သွင်းပါ:
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 ```
 
-5. Start the bot:
+5. Bot ကို စတင်ပါ:
 
 ```powershell
 .\.venv\Scripts\python -m forwardbot
 ```
 
-## Commands
+## Commands များ
 
-- `/start` - show help.
-- `/copy MESSAGE_LINK` - clone a public or private Telegram message link.
-- `/cancel` - cancel an active private-link flow.
+- `/start` - အကူအညီပြသရန်။
+- `/copy MESSAGE_LINK` - အများမြင် သို့မဟုတ် private Telegram message link ကို ကူးယူရန်။
+- `/cancel` - လက်ရှိ private-link လုပ်ငန်းစဉ်ကို ပယ်ဖျက်ရန်။
 
-## Notes
+## မှတ်ချက်များ
 
-- `/copy` always sends the cloned message to the sender's private chat.
-- If `/copy` is used from a group, the sender must open the bot privately and press Start once so the bot can DM them.
-- `DEFAULT_USER_SESSION_STRING` is mandatory at startup.
-- Public links require `DEFAULT_USER_SESSION_STRING`; the bot does not ask for phone numbers in the server CLI.
-- Private login flow enters the Telegram login code with inline buttons instead of sending it as a chat message; phone and password messages are deleted when Telegram allows it.
-- Bots and user sessions cannot bypass Telegram access control. The default session or temporary login account must legitimately be able to access the source.
+- `/copy` သည် ကူးယူထားသော message ကို ပို့သူ၏ private chat သို့ အမြဲပို့ပါသည်။
+- Group မှ `/copy` အသုံးပြုပါက bot ကို private chat တွင်ဖွင့်ပြီး Start ကို တစ်ကြိမ်နှိပ်ရပါမည်။ ထိုအခါ bot က DM ပို့နိုင်ပါမည်။
+- Bot စတင်ချိန်တွင် `DEFAULT_USER_SESSION_STRING` မဖြစ်မနေ လိုအပ်ပါသည်။
+- အများမြင် link များအတွက် `DEFAULT_USER_SESSION_STRING` လိုအပ်ပါသည်။ Bot သည် server CLI တွင် phone number မမေးပါ။
+- Private login လုပ်ငန်းစဉ်တွင် Telegram login code ကို chat message အဖြစ် မပို့ဘဲ inline button များဖြင့် ထည့်ရပါသည်။ Telegram ခွင့်ပြုပါက phone နှင့် password message များကို ဖျက်ပေးပါသည်။
+- Bot နှင့် user session များသည် Telegram ၏ access control ကို ကျော်လွှား၍ မရပါ။ မူလ session သို့မဟုတ် ယာယီ login account သည် မူရင်း message ကို တရားဝင် ဝင်ရောက်ကြည့်ရှုနိုင်ရပါမည်။

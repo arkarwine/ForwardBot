@@ -70,9 +70,9 @@ def run() -> None:
     @bot.on_message(filters.command(["start", "help"]))
     async def start_handler(_: Client, message: Message) -> None:
         await message.reply_text(
-            "Send /copy MESSAGE_LINK.\n\n"
-            "Public links are cloned with the configured default user session and sent to your private chat.\n"
-            "Private links will ask how you want to give access: invite link or a temporary member login."
+            "/copy MESSAGE_LINK ကို ပို့ပါ။\n\n"
+            "အများမြင်လင့်ခ်များကို သတ်မှတ်ထားသော မူလ user session ဖြင့် ကူးယူပြီး သင့် private chat သို့ ပို့ပေးပါမည်။\n"
+            "Private link ဖြစ်ပါက ဝင်ရောက်ခွင့်ပေးမည့်နည်းလမ်းကို ရွေးချယ်ခိုင်းပါမည် - invite link သို့မဟုတ် ယာယီ member login။"
         )
 
     @bot.on_message(filters.command("cancel"))
@@ -80,19 +80,19 @@ def run() -> None:
         flow = flows.pop(message.from_user.id, None) if message.from_user else None
         if flow and flow.client and flow.client.is_connected:
             await flow.client.disconnect()
-        await message.reply_text("Cancelled the current copy flow.")
+        await message.reply_text("လက်ရှိ copy လုပ်နေမှုကို ပယ်ဖျက်လိုက်ပါပြီ။")
 
     @bot.on_message(filters.command("copy"))
     async def copy_handler(_: Client, message: Message) -> None:
         if not message.from_user:
             await message.reply_text(
-                "I need a visible user sender so I know where to DM the result."
+                "ရလဒ်ကို DM ပို့နိုင်ရန် user sender ကို မြင်ရပါမည်။"
             )
             return
 
         parts = (message.text or "").split(maxsplit=1)
         if len(parts) < 2:
-            await message.reply_text("Usage: /copy MESSAGE_LINK")
+            await message.reply_text("အသုံးပြုပုံ - /copy MESSAGE_LINK")
             return
 
         try:
@@ -107,7 +107,7 @@ def run() -> None:
             return
 
         job_id = db.create_job(message.from_user.id, link.raw, str(target_chat))
-        status = await message.reply_text("Cloning public post...")
+        status = await message.reply_text("အများမြင် post ကို ကူးယူနေပါသည်...")
         try:
             detail = await copy_message(
                 bot,
@@ -118,22 +118,21 @@ def run() -> None:
                 settings.download_dir,
             )
             db.update_job(job_id, "sent", detail)
-            await status.edit_text(f"Done. Sent to your private chat. {detail}")
+            await status.edit_text(f"ပြီးပါပြီ။ သင့် private chat သို့ ပို့ပြီးပါပြီ။ {detail}")
         except CopyError as exc:
             db.update_job(job_id, "failed", str(exc))
             await status.edit_text(
-                f"I could not clone that public post.\n\n{exc}\n\n"
-                "Check that DEFAULT_USER_SESSION_STRING is configured and that the linked post is visible "
-                "to that account."
+                f"ထိုအများမြင် post ကို ကူးယူ၍ မရပါ။\n\n{exc}\n\n"
+                "DEFAULT_USER_SESSION_STRING ကို သတ်မှတ်ထားခြင်းရှိ၊ လင့်ခ်ပါ post ကို ထို account က မြင်နိုင်ခြင်းရှိ စစ်ဆေးပါ။"
             )
         except Exception as exc:
             logging.exception("public copy failed")
             db.update_job(job_id, "failed", str(exc))
             extra_hint = ""
             if message.chat.id != message.from_user.id:
-                extra_hint = "\n\nIf you sent this from a group, open the bot privately and press Start once so I can DM you."
+                extra_hint = "\n\nGroup မှ ပို့ခဲ့ပါက bot ကို private chat တွင်ဖွင့်ပြီး Start ကို တစ်ကြိမ်နှိပ်ပါ။ ထို့နောက် DM ပို့နိုင်ပါမည်။"
             await status.edit_text(
-                f"Unexpected copy failure while cloning that public post: {exc}{extra_hint}"
+                f"အများမြင် post ကို ကူးယူရာတွင် မမျှော်လင့်ထားသော အမှားဖြစ်ပွားခဲ့သည်: {exc}{extra_hint}"
             )
 
     async def start_private_copy_flow(
@@ -145,8 +144,8 @@ def run() -> None:
             await old_flow.client.disconnect()
 
         status = await message.reply_text(
-            "That is a private group/channel link. I need access before I can clone it.\n\n"
-            "Choose one option:",
+            "ဤလင့်ခ်သည် private group/channel ဖြစ်ပါသည်။ ကူးယူရန် ဝင်ရောက်ခွင့်လိုအပ်ပါသည်။\n\n"
+            "နည်းလမ်းတစ်ခု ရွေးပါ -",
             reply_markup=private_access_keyboard(),
         )
         flows[message.from_user.id] = PrivateCopyFlow(
@@ -167,33 +166,32 @@ def run() -> None:
             flow = flows.pop(user_id, None)
             if flow and flow.client and flow.client.is_connected:
                 await flow.client.disconnect()
-            await callback.answer("Cancelled.")
+            await callback.answer("ပယ်ဖျက်လိုက်ပါပြီ။")
             if callback.message:
-                await callback.message.edit_text("Cancelled the private copy flow.")
+                await callback.message.edit_text("Private copy လုပ်နေမှုကို ပယ်ဖျက်လိုက်ပါပြီ။")
             return
 
         if not flow:
             await callback.answer(
-                "No active private copy flow. Send /copy again.", show_alert=True
+                "လက်ရှိ private copy လုပ်နေမှု မရှိပါ။ /copy ကို ထပ်ပို့ပါ။", show_alert=True
             )
             return
 
         if action == "invite":
-            await callback.answer("Waiting for an invite link...")
+            await callback.answer("Invite link ကို စောင့်နေပါသည်...")
             flow.step = "invite"
             await send_flow_prompt(
                 callback,
-                "Send the private group/channel invite link here.\n\n"
-                "I will join it with the configured DEFAULT_USER_SESSION_STRING, clone the linked message, "
-                "and send the result to your private chat.",
+                "Private group/channel ၏ invite link ကို ပို့ပါ။\n\n"
+                "သတ်မှတ်ထားသော DEFAULT_USER_SESSION_STRING ဖြင့် ဝင်ရောက်ပြီး လင့်ခ်ပါ message ကို ကူးယူကာ သင့် private chat သို့ ပို့ပေးပါမည်။",
             )
         elif action == "login":
             flow.step = "phone"
-            await callback.answer("Opening secure login flow...")
+            await callback.answer("လုံခြုံသော login လုပ်ငန်းစဉ်ကို ဖွင့်နေပါသည်...")
             if callback.message:
                 await callback.message.edit_text(
-                    "Preparing a temporary member login session...\n\n"
-                    "I will ask for the phone number in private chat if needed."
+                    "ယာယီ member login session ကို ပြင်ဆင်နေပါသည်...\n\n"
+                    "လိုအပ်ပါက phone number ကို private chat တွင် မေးပါမည်။"
                 )
             try:
                 flow.client = sessions.new_ephemeral_client(f"member_{user_id}")
@@ -202,15 +200,14 @@ def run() -> None:
                 flows.pop(user_id, None)
                 await send_flow_prompt(
                     callback,
-                    f"I could not start a temporary login session: {exc}\n\n"
-                    "Try the invite-link option instead, or try again later.",
+                    f"ယာယီ login session စတင်၍ မရပါ: {exc}\n\n"
+                    "Invite-link နည်းလမ်းကို စမ်းပါ၊ သို့မဟုတ် နောက်မှ ထပ်စမ်းပါ။",
                 )
                 return
             await send_flow_prompt(
                 callback,
-                "Send the phone number for a user account that is already in that private chat.\n\n"
-                "Use international format, for example +15551234567. The login code will be entered with "
-                "buttons and will never be sent as a chat message.",
+                "ထို private chat ထဲတွင် ရှိပြီးသား user account ၏ phone number ကို ပို့ပါ။\n\n"
+                "နိုင်ငံကုဒ်ပါသော ပုံစံကို သုံးပါ၊ ဥပမာ +15551234567။ Login code ကို ခလုတ်များဖြင့် ထည့်ရမည်ဖြစ်ပြီး chat message အဖြစ် ပို့မည်မဟုတ်ပါ။",
             )
 
     @bot.on_callback_query(
@@ -223,7 +220,7 @@ def run() -> None:
         flow = flows.get(user_id)
         if not flow or flow.step != "code":
             await callback.answer(
-                "No active code entry. Send /copy again and choose Login.",
+                "လက်ရှိ code ထည့်နေမှု မရှိပါ။ /copy ကို ထပ်ပို့ပြီး Login ကို ရွေးပါ။",
                 show_alert=True,
             )
             return
@@ -232,10 +229,10 @@ def run() -> None:
         action = parts[1]
         value = parts[2] if len(parts) == 3 else ""
         if action == "cancel":
-            await callback.answer("Cancelled.")
+            await callback.answer("ပယ်ဖျက်လိုက်ပါပြီ။")
             await cleanup_flow(user_id)
             if callback.message:
-                await callback.message.edit_text("Cancelled the private copy flow.")
+                await callback.message.edit_text("Private copy လုပ်နေမှုကို ပယ်ဖျက်လိုက်ပါပြီ။")
             return
         if action == "digit" and value:
             if len(flow.login_code) < 6:
@@ -246,9 +243,9 @@ def run() -> None:
             flow.login_code = ""
         elif action == "submit":
             if not flow.login_code:
-                await callback.answer("Enter the code first.", show_alert=True)
+                await callback.answer("Code ကို အရင်ထည့်ပါ။", show_alert=True)
                 return
-            await callback.answer("Checking code...")
+            await callback.answer("Code ကို စစ်ဆေးနေပါသည်...")
             try:
                 await handle_login_code(
                     callback.message.chat.id if callback.message else user_id, flow
@@ -257,31 +254,31 @@ def run() -> None:
                 flow.login_code = ""
                 if callback.message:
                     await callback.message.edit_text(
-                        "That login code was invalid. Enter the latest code.",
+                        "Login code မှားနေပါသည်။ နောက်ဆုံးရ code ကို ထည့်ပါ။",
                         reply_markup=login_code_keyboard(flow.login_code),
                     )
             except PhoneCodeExpired:
                 await cleanup_flow(user_id)
                 if callback.message:
                     await callback.message.edit_text(
-                        "That login code expired. Send /copy again and choose Login."
+                        "Login code သက်တမ်းကုန်သွားပါပြီ။ /copy ကို ထပ်ပို့ပြီး Login ကို ရွေးပါ။"
                     )
             except SessionPasswordNeeded:
                 flow.step = "password"
                 if callback.message:
                     await callback.message.edit_text(
-                        "2FA is enabled. Send the password here, then I will delete that message when Telegram allows it."
+                        "2FA ဖွင့်ထားပါသည်။ Password ကို ဤနေရာတွင် ပို့ပါ။ Telegram ခွင့်ပြုပါက ထို message ကို ဖျက်ပေးပါမည်။"
                     )
             except Exception as exc:
                 logging.exception("private login code flow failed")
                 await cleanup_flow(user_id)
                 if callback.message:
-                    await callback.message.edit_text(f"Unexpected login failure: {exc}")
+                    await callback.message.edit_text(f"Login လုပ်ရာတွင် မမျှော်လင့်ထားသော အမှားဖြစ်ပွားခဲ့သည်: {exc}")
             return
 
         if callback.message:
             await callback.message.edit_text(
-                f"Enter the Telegram login code with the buttons below.\n\nCode: {flow.login_code or '—'}",
+                f"အောက်ပါခလုတ်များဖြင့် Telegram login code ကို ထည့်ပါ။\n\nCode: {flow.login_code or '—'}",
                 reply_markup=login_code_keyboard(flow.login_code),
             )
         await callback.answer()
@@ -307,7 +304,7 @@ def run() -> None:
                 await handle_login_phone(message, flow, text)
             elif flow.step == "code":
                 await message.reply_text(
-                    "Use the buttons in the login-code prompt. The code must not be sent as a message."
+                    "Login-code prompt ထဲရှိ ခလုတ်များကို သုံးပါ။ Code ကို message အဖြစ် မပို့ပါနှင့်။"
                 )
             elif flow.step == "password":
                 await safe_delete(message)
@@ -315,36 +312,36 @@ def run() -> None:
         except PhoneCodeInvalid:
             await bot.send_message(
                 message.chat.id,
-                "That login code was invalid. Send the latest code again.",
+                "Login code မှားနေပါသည်။ နောက်ဆုံးရ code ကို ထပ်ပို့ပါ။",
             )
         except PhoneCodeExpired:
             await cleanup_flow(message.from_user.id)
             await bot.send_message(
                 message.chat.id,
-                "That login code expired. Send /copy again and choose Login.",
+                "Login code သက်တမ်းကုန်သွားပါပြီ။ /copy ကို ထပ်ပို့ပြီး Login ကို ရွေးပါ။",
             )
         except PasswordHashInvalid:
             await bot.send_message(
                 message.chat.id,
-                "That 2FA password was invalid. Try again or send /cancel.",
+                "2FA password မှားနေပါသည်။ ထပ်စမ်းပါ၊ သို့မဟုတ် /cancel ကို ပို့ပါ။",
             )
         except ValueError as exc:
             await bot.send_message(message.chat.id, str(exc))
         except BadRequest as exc:
             await bot.send_message(
-                message.chat.id, f"Telegram rejected that step: {exc}"
+                message.chat.id, f"ထိုအဆင့်ကို Telegram က လက်မခံပါ: {exc}"
             )
         except CopyError as exc:
             await cleanup_flow(message.from_user.id)
             await bot.send_message(
-                message.chat.id, f"I could not clone the private message.\n\n{exc}"
+                message.chat.id, f"Private message ကို ကူးယူ၍ မရပါ။\n\n{exc}"
             )
         except Exception as exc:
             logging.exception("private copy flow failed")
             await cleanup_flow(message.from_user.id)
             await bot.send_message(
                 message.chat.id,
-                f"Unexpected private-copy failure: {exc}\n\nSend /copy again to restart cleanly.",
+                f"Private copy လုပ်ရာတွင် မမျှော်လင့်ထားသော အမှားဖြစ်ပွားခဲ့သည်: {exc}\n\nအစမှ ပြန်စရန် /copy ကို ထပ်ပို့ပါ။",
             )
 
     async def handle_invite_link(
@@ -352,7 +349,7 @@ def run() -> None:
     ) -> None:
         if not looks_like_invite(invite_link):
             await message.reply_text(
-                "That does not look like a Telegram invite link. Send a t.me/+... or t.me/joinchat/... link."
+                "ဤလင့်ခ်သည် Telegram invite link မဟုတ်သလို ဖြစ်နေပါသည်။ t.me/+... သို့မဟုတ် t.me/joinchat/... link ကို ပို့ပါ။"
             )
             return
 
@@ -360,26 +357,26 @@ def run() -> None:
             user = await sessions.ensure_started(settings.default_user_session)
         except SessionUnavailable as exc:
             raise CopyError(
-                "Invite-link access needs DEFAULT_USER_SESSION_STRING. Add it to .env and restart the bot, "
-                "or choose Login and provide a member account."
+                "Invite-link ဖြင့် ဝင်ရောက်ရန် DEFAULT_USER_SESSION_STRING လိုအပ်ပါသည်။ .env ထဲတွင် ထည့်ပြီး bot ကို restart လုပ်ပါ၊ "
+                "သို့မဟုတ် Login ကို ရွေးပြီး member account ကို အသုံးပြုပါ။"
             ) from exc
 
-        progress = await message.reply_text("Joining with the default session...")
+        progress = await message.reply_text("မူလ session ဖြင့် ဝင်ရောက်နေပါသည်...")
         try:
             chat = await user.join_chat(invite_link)
             await progress.edit_text(
-                f"Joined {chat.title}. Cloning the linked message..."
+                f"{chat.title} ထဲသို့ ဝင်ရောက်ပြီးပါပြီ။ လင့်ခ်ပါ message ကို ကူးယူနေပါသည်..."
             )
         except Exception as exc:
             await progress.edit_text(
-                f"The default session could not join with that invite: {exc}\n\n"
-                "I will still try to clone in case the default account is already a member."
+                f"ထို invite ဖြင့် မူလ session က ဝင်ရောက်၍ မရပါ: {exc}\n\n"
+                "မူလ account သည် ထို group ၏ member ဖြစ်ပြီးသားဖြစ်နိုင်သောကြောင့် ကူးယူရန် ဆက်လက်ကြိုးစားပါမည်။"
             )
 
         detail = await clone_with_client(
             bot, user, flow.link, flow.target_chat, settings.download_dir
         )
-        await progress.edit_text(f"Done. Sent to your private chat. {detail}")
+        await progress.edit_text(f"ပြီးပါပြီ။ သင့် private chat သို့ ပို့ပြီးပါပြီ။ {detail}")
         flows.pop(flow.requester_id, None)
 
     async def handle_login_phone(
@@ -393,14 +390,14 @@ def run() -> None:
         flow.login_code = ""
         await bot.send_message(
             message.chat.id,
-            "Code sent. Enter it with the buttons below; do not send it as a message.",
+            "Code ပို့ပြီးပါပြီ။ အောက်ပါခလုတ်များဖြင့် ထည့်ပါ။ Code ကို message အဖြစ် မပို့ပါနှင့်။",
             reply_markup=login_code_keyboard(flow.login_code),
         )
 
     async def handle_login_code(chat_id: int, flow: PrivateCopyFlow) -> None:
         code = flow.login_code
         if not code:
-            raise ValueError("Enter the numeric Telegram login code with the buttons.")
+            raise ValueError("ခလုတ်များဖြင့် ဂဏန်းပါ Telegram login code ကို ထည့်ပါ။")
         assert flow.client is not None and flow.phone and flow.phone_code_hash
         await flow.client.sign_in(flow.phone, flow.phone_code_hash, code)
         await finish_member_login(chat_id, flow)
@@ -422,12 +419,12 @@ def run() -> None:
 
         progress = await bot.send_message(
             chat_id,
-            f"Logged in as {me.first_name}. Cloning the private message...",
+            f"{me.first_name} အဖြစ် login ဝင်ပြီးပါပြီ။ Private message ကို ကူးယူနေပါသည်...",
         )
         detail = await clone_with_client(
             bot, flow.client, flow.link, flow.target_chat, settings.download_dir
         )
-        await progress.edit_text(f"Done. Sent to your private chat. {detail}")
+        await progress.edit_text(f"ပြီးပါပြီ။ သင့် private chat သို့ ပို့ပြီးပါပြီ။ {detail}")
         await cleanup_flow(flow.requester_id)
 
     async def cleanup_flow(user_id: int) -> None:
@@ -445,13 +442,13 @@ def run() -> None:
         except Exception:
             if callback.message:
                 await callback.message.edit_text(
-                    "I need to continue this privately. Open this bot in private chat, press Start, then send /copy again."
+                    "ဆက်လက်လုပ်ဆောင်ရန် private chat လိုအပ်ပါသည်။ Bot ကို private chat တွင်ဖွင့်ပြီး Start ကို နှိပ်ကာ /copy ကို ထပ်ပို့ပါ။"
                 )
             return
 
         if callback.message:
             await callback.message.edit_text(
-                "I sent you a private prompt to continue this copy flow."
+                "ဤ copy လုပ်ငန်းစဉ်ကို ဆက်လုပ်ရန် private prompt ကို ပို့ပေးလိုက်ပါပြီ။"
             )
 
     async def safe_delete(message: Message) -> None:
@@ -484,13 +481,13 @@ def private_access_keyboard() -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(
-                    "Use invite link", callback_data="private_copy:invite"
+                    "Invite link သုံးမည်", callback_data="private_copy:invite"
                 ),
                 InlineKeyboardButton(
-                    "Login member account", callback_data="private_copy:login"
+                    "Member account ဖြင့် Login", callback_data="private_copy:login"
                 ),
             ],
-            [InlineKeyboardButton("Cancel", callback_data="private_copy:cancel")],
+            [InlineKeyboardButton("ပယ်ဖျက်မည်", callback_data="private_copy:cancel")],
         ]
     )
 
@@ -509,17 +506,17 @@ def login_code_keyboard(code: str) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("0", callback_data="private_copy_code:digit:0"),
             InlineKeyboardButton(
-                "Backspace", callback_data="private_copy_code:backspace"
+                "နောက်သို့ဖျက်", callback_data="private_copy_code:backspace"
             ),
-            InlineKeyboardButton("Clear", callback_data="private_copy_code:clear"),
+            InlineKeyboardButton("ရှင်းမည်", callback_data="private_copy_code:clear"),
         ]
     )
     rows.append(
         [
             InlineKeyboardButton(
-                f"Enter {code or 'code'}", callback_data="private_copy_code:submit"
+                f"{code or 'Code'} ထည့်မည်", callback_data="private_copy_code:submit"
             ),
-            InlineKeyboardButton("Cancel", callback_data="private_copy_code:cancel"),
+            InlineKeyboardButton("ပယ်ဖျက်မည်", callback_data="private_copy_code:cancel"),
         ]
     )
     return InlineKeyboardMarkup(rows)
@@ -528,7 +525,7 @@ def login_code_keyboard(code: str) -> InlineKeyboardMarkup:
 def normalize_phone(value: str) -> str:
     value = value.strip().replace(" ", "")
     if not value.startswith("+"):
-        raise ValueError("Phone number must start with + and country code.")
+        raise ValueError("Phone number သည် + နှင့် country code ဖြင့် စရပါမည်။")
     return value
 
 
