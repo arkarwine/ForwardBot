@@ -13,7 +13,12 @@ from pyrogram.errors import (
     PhoneCodeInvalid,
     SessionPasswordNeeded,
 )
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from .config import Settings
 from .copier import CopyError, clone_with_client, copy_message
@@ -35,6 +40,7 @@ class PrivateCopyFlow:
     client: Client | None = None
     phone: str | None = None
     phone_code_hash: str | None = None
+    login_code: str = ""
     session_string: str | None = None
 
 
@@ -79,7 +85,9 @@ def run() -> None:
     @bot.on_message(filters.command("copy"))
     async def copy_handler(_: Client, message: Message) -> None:
         if not message.from_user:
-            await message.reply_text("I need a visible user sender so I know where to DM the result.")
+            await message.reply_text(
+                "I need a visible user sender so I know where to DM the result."
+            )
             return
 
         parts = (message.text or "").split(maxsplit=1)
@@ -121,12 +129,16 @@ def run() -> None:
         except Exception as exc:
             logging.exception("public copy failed")
             db.update_job(job_id, "failed", str(exc))
+            extra_hint = ""
+            if message.chat.id != message.from_user.id:
+                extra_hint = "\n\nIf you sent this from a group, open the bot privately and press Start once so I can DM you."
             await status.edit_text(
-                f"Unexpected copy failure: {exc}\n\n"
-                "If this command was sent in a group, open the bot privately and press Start once so I can DM you."
+                f"Unexpected copy failure while cloning that public post: {exc}{extra_hint}"
             )
 
-    async def start_private_copy_flow(message: Message, link: MessageLink, target_chat: int) -> None:
+    async def start_private_copy_flow(
+        message: Message, link: MessageLink, target_chat: int
+    ) -> None:
         assert message.from_user is not None
         old_flow = flows.pop(message.from_user.id, None)
         if old_flow and old_flow.client and old_flow.client.is_connected:
@@ -161,20 +173,28 @@ def run() -> None:
             return
 
         if not flow:
-            await callback.answer("No active private copy flow. Send /copy again.", show_alert=True)
+            await callback.answer(
+                "No active private copy flow. Send /copy again.", show_alert=True
+            )
             return
 
-        await callback.answer()
         if action == "invite":
+            await callback.answer("Waiting for an invite link...")
             flow.step = "invite"
             await send_flow_prompt(
                 callback,
                 "Send the private group/channel invite link here.\n\n"
                 "I will join it with the configured DEFAULT_USER_SESSION_STRING, clone the linked message, "
-                "and send the result to your private chat."
+                "and send the result to your private chat.",
             )
         elif action == "login":
             flow.step = "phone"
+            await callback.answer("Opening secure login flow...")
+            if callback.message:
+                await callback.message.edit_text(
+                    "Preparing a temporary member login session...\n\n"
+                    "I will ask for the phone number in private chat if needed."
+                )
             try:
                 flow.client = sessions.new_ephemeral_client(f"member_{user_id}")
                 await flow.client.connect()
@@ -189,11 +209,86 @@ def run() -> None:
             await send_flow_prompt(
                 callback,
                 "Send the phone number for a user account that is already in that private chat.\n\n"
-                "Use international format, for example +15551234567. I will delete phone/code/password "
-                "messages when Telegram allows it."
+                "Use international format, for example +15551234567. The login code will be entered with "
+                "buttons and will never be sent as a chat message.",
             )
 
-    @bot.on_message(filters.private & filters.text & ~filters.command(["start", "help", "copy", "cancel"]))
+    @bot.on_callback_query(
+        filters.regex(r"^private_copy_code:(digit|backspace|clear|submit|cancel)(?::\d)?$")
+    )
+    async def private_copy_code_callback(_: Client, callback: CallbackQuery) -> None:
+        user_id = callback.from_user.id
+        flow = flows.get(user_id)
+        if not flow or flow.step != "code":
+            await callback.answer(
+                "No active code entry. Send /copy again and choose Login.",
+                show_alert=True,
+            )
+            return
+
+        parts = (callback.data or "").split(":")
+        action = parts[1]
+        value = parts[2] if len(parts) == 3 else ""
+        if action == "cancel":
+            await callback.answer("Cancelled.")
+            await cleanup_flow(user_id)
+            if callback.message:
+                await callback.message.edit_text("Cancelled the private copy flow.")
+            return
+        if action == "digit" and value:
+            if len(flow.login_code) < 6:
+                flow.login_code += value
+        elif action == "backspace":
+            flow.login_code = flow.login_code[:-1]
+        elif action == "clear":
+            flow.login_code = ""
+        elif action == "submit":
+            if not flow.login_code:
+                await callback.answer("Enter the code first.", show_alert=True)
+                return
+            await callback.answer("Checking code...")
+            try:
+                await handle_login_code(
+                    callback.message.chat.id if callback.message else user_id, flow
+                )
+            except PhoneCodeInvalid:
+                flow.login_code = ""
+                if callback.message:
+                    await callback.message.edit_text(
+                        "That login code was invalid. Enter the latest code.",
+                        reply_markup=login_code_keyboard(flow.login_code),
+                    )
+            except PhoneCodeExpired:
+                await cleanup_flow(user_id)
+                if callback.message:
+                    await callback.message.edit_text(
+                        "That login code expired. Send /copy again and choose Login."
+                    )
+            except SessionPasswordNeeded:
+                flow.step = "password"
+                if callback.message:
+                    await callback.message.edit_text(
+                        "2FA is enabled. Send the password here, then I will delete that message when Telegram allows it."
+                    )
+            except Exception as exc:
+                logging.exception("private login code flow failed")
+                await cleanup_flow(user_id)
+                if callback.message:
+                    await callback.message.edit_text(f"Unexpected login failure: {exc}")
+            return
+
+        if callback.message:
+            await callback.message.edit_text(
+                f"Enter the Telegram login code with the buttons below.\n\nCode: {flow.login_code or '—'}",
+                reply_markup=login_code_keyboard(flow.login_code),
+            )
+        await callback.answer()
+
+    @bot.on_message(
+        filters.private
+        & filters.text
+        & ~filters.command(["start", "help", "copy", "cancel"])
+    )
     async def private_flow_text_handler(_: Client, message: Message) -> None:
         if not message.from_user:
             return
@@ -209,25 +304,39 @@ def run() -> None:
                 await safe_delete(message)
                 await handle_login_phone(message, flow, text)
             elif flow.step == "code":
-                await safe_delete(message)
-                await handle_login_code(message, flow, text)
+                await message.reply_text(
+                    "Use the buttons in the login-code prompt. The code must not be sent as a message."
+                )
             elif flow.step == "password":
                 await safe_delete(message)
                 await handle_login_password(message, flow, text)
         except PhoneCodeInvalid:
-            await bot.send_message(message.chat.id, "That login code was invalid. Send the latest code again.")
+            await bot.send_message(
+                message.chat.id,
+                "That login code was invalid. Send the latest code again.",
+            )
         except PhoneCodeExpired:
             await cleanup_flow(message.from_user.id)
-            await bot.send_message(message.chat.id, "That login code expired. Send /copy again and choose Login.")
+            await bot.send_message(
+                message.chat.id,
+                "That login code expired. Send /copy again and choose Login.",
+            )
         except PasswordHashInvalid:
-            await bot.send_message(message.chat.id, "That 2FA password was invalid. Try again or send /cancel.")
+            await bot.send_message(
+                message.chat.id,
+                "That 2FA password was invalid. Try again or send /cancel.",
+            )
         except ValueError as exc:
             await bot.send_message(message.chat.id, str(exc))
         except BadRequest as exc:
-            await bot.send_message(message.chat.id, f"Telegram rejected that step: {exc}")
+            await bot.send_message(
+                message.chat.id, f"Telegram rejected that step: {exc}"
+            )
         except CopyError as exc:
             await cleanup_flow(message.from_user.id)
-            await bot.send_message(message.chat.id, f"I could not clone the private message.\n\n{exc}")
+            await bot.send_message(
+                message.chat.id, f"I could not clone the private message.\n\n{exc}"
+            )
         except Exception as exc:
             logging.exception("private copy flow failed")
             await cleanup_flow(message.from_user.id)
@@ -236,9 +345,13 @@ def run() -> None:
                 f"Unexpected private-copy failure: {exc}\n\nSend /copy again to restart cleanly.",
             )
 
-    async def handle_invite_link(message: Message, flow: PrivateCopyFlow, invite_link: str) -> None:
+    async def handle_invite_link(
+        message: Message, flow: PrivateCopyFlow, invite_link: str
+    ) -> None:
         if not looks_like_invite(invite_link):
-            await message.reply_text("That does not look like a Telegram invite link. Send a t.me/+... or t.me/joinchat/... link.")
+            await message.reply_text(
+                "That does not look like a Telegram invite link. Send a t.me/+... or t.me/joinchat/... link."
+            )
             return
 
         try:
@@ -252,44 +365,54 @@ def run() -> None:
         progress = await message.reply_text("Joining with the default session...")
         try:
             chat = await user.join_chat(invite_link)
-            await progress.edit_text(f"Joined {chat.title}. Cloning the linked message...")
+            await progress.edit_text(
+                f"Joined {chat.title}. Cloning the linked message..."
+            )
         except Exception as exc:
             await progress.edit_text(
                 f"The default session could not join with that invite: {exc}\n\n"
                 "I will still try to clone in case the default account is already a member."
             )
 
-        detail = await clone_with_client(bot, user, flow.link, flow.target_chat, settings.download_dir)
+        detail = await clone_with_client(
+            bot, user, flow.link, flow.target_chat, settings.download_dir
+        )
         await progress.edit_text(f"Done. Sent to your private chat. {detail}")
         flows.pop(flow.requester_id, None)
 
-    async def handle_login_phone(message: Message, flow: PrivateCopyFlow, phone: str) -> None:
+    async def handle_login_phone(
+        message: Message, flow: PrivateCopyFlow, phone: str
+    ) -> None:
         flow.phone = normalize_phone(phone)
         assert flow.client is not None
         sent = await flow.client.send_code(flow.phone)
         flow.phone_code_hash = sent.phone_code_hash
         flow.step = "code"
-        await bot.send_message(message.chat.id, "Code sent. Send the login code here. Spaces are okay.")
+        flow.login_code = ""
+        await bot.send_message(
+            message.chat.id,
+            "Code sent. Enter it with the buttons below; do not send it as a message.",
+            reply_markup=login_code_keyboard(flow.login_code),
+        )
 
-    async def handle_login_code(message: Message, flow: PrivateCopyFlow, code_text: str) -> None:
-        code = re.sub(r"\D", "", code_text)
+    async def handle_login_code(
+        chat_id: int, flow: PrivateCopyFlow
+    ) -> None:
+        code = flow.login_code
         if not code:
-            raise ValueError("Send the numeric Telegram login code.")
+            raise ValueError("Enter the numeric Telegram login code with the buttons.")
         assert flow.client is not None and flow.phone and flow.phone_code_hash
-        try:
-            await flow.client.sign_in(flow.phone, flow.phone_code_hash, code)
-        except SessionPasswordNeeded:
-            flow.step = "password"
-            await bot.send_message(message.chat.id, "2FA is enabled. Send the password.")
-            return
-        await finish_member_login(message, flow)
+        await flow.client.sign_in(flow.phone, flow.phone_code_hash, code)
+        await finish_member_login(chat_id, flow)
 
-    async def handle_login_password(message: Message, flow: PrivateCopyFlow, password: str) -> None:
+    async def handle_login_password(
+        message: Message, flow: PrivateCopyFlow, password: str
+    ) -> None:
         assert flow.client is not None
         await flow.client.check_password(password)
-        await finish_member_login(message, flow)
+        await finish_member_login(message.chat.id, flow)
 
-    async def finish_member_login(message: Message, flow: PrivateCopyFlow) -> None:
+    async def finish_member_login(chat_id: int, flow: PrivateCopyFlow) -> None:
         assert flow.client is not None
         me = await flow.client.get_me()
         try:
@@ -298,10 +421,12 @@ def run() -> None:
             flow.session_string = None
 
         progress = await bot.send_message(
-            message.chat.id,
+            chat_id,
             f"Logged in as {me.first_name}. Cloning the private message...",
         )
-        detail = await clone_with_client(bot, flow.client, flow.link, flow.target_chat, settings.download_dir)
+        detail = await clone_with_client(
+            bot, flow.client, flow.link, flow.target_chat, settings.download_dir
+        )
         await progress.edit_text(f"Done. Sent to your private chat. {detail}")
         await cleanup_flow(flow.requester_id)
 
@@ -325,7 +450,9 @@ def run() -> None:
             return
 
         if callback.message:
-            await callback.message.edit_text("I sent you a private prompt to continue this copy flow.")
+            await callback.message.edit_text(
+                "I sent you a private prompt to continue this copy flow."
+            )
 
     async def safe_delete(message: Message) -> None:
         try:
@@ -356,12 +483,44 @@ def private_access_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Use invite link", callback_data="private_copy:invite"),
-                InlineKeyboardButton("Login member account", callback_data="private_copy:login"),
+                InlineKeyboardButton(
+                    "Use invite link", callback_data="private_copy:invite"
+                ),
+                InlineKeyboardButton(
+                    "Login member account", callback_data="private_copy:login"
+                ),
             ],
             [InlineKeyboardButton("Cancel", callback_data="private_copy:cancel")],
         ]
     )
+
+
+def login_code_keyboard(code: str) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                digit, callback_data=f"private_copy_code:digit:{digit}"
+            )
+            for digit in row
+        ]
+        for row in ("123", "456", "789")
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton("0", callback_data="private_copy_code:digit:0"),
+            InlineKeyboardButton("Backspace", callback_data="private_copy_code:backspace"),
+            InlineKeyboardButton("Clear", callback_data="private_copy_code:clear"),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                f"Enter {code or 'code'}", callback_data="private_copy_code:submit"
+            ),
+            InlineKeyboardButton("Cancel", callback_data="private_copy_code:cancel"),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
 
 
 def normalize_phone(value: str) -> str:
@@ -375,5 +534,7 @@ def looks_like_invite(value: str) -> bool:
     value = value.strip()
     return bool(
         re.match(r"^(?:https?://)?t\.me/(?:\+|joinchat/)[A-Za-z0-9_-]+$", value)
-        or re.match(r"^(?:https?://)?telegram\.me/(?:\+|joinchat/)[A-Za-z0-9_-]+$", value)
+        or re.match(
+            r"^(?:https?://)?telegram\.me/(?:\+|joinchat/)[A-Za-z0-9_-]+$", value
+        )
     )

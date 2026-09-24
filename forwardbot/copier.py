@@ -6,7 +6,7 @@ import mimetypes
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable
 from uuid import uuid4
 
 from pyrogram import Client
@@ -389,12 +389,49 @@ def build_download_path(message: Message, download_dir: Path) -> Path:
     return download_dir / f"{prefix}_{uuid4().hex}{suffix}"
 
 
+def _finalize_download_path(downloaded: Path, desired: Path) -> Path:
+    if downloaded == desired:
+        return desired
+
+    if downloaded.suffix.lower() == desired.suffix.lower():
+        return downloaded
+
+    desired.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.replace(desired)
+    return desired
+
+
 async def _download_for_reupload(message: Message, download_dir: Path) -> Path:
     path = build_download_path(message, download_dir)
     downloaded = await message.download(file_name=str(path))
     if not downloaded:
         raise CopyError("Telegram could not download the source media for re-upload.")
-    return Path(downloaded)
+    return _finalize_download_path(Path(downloaded), path)
+
+
+def _friendly_upload_error(exc: RPCError, media_kind: str) -> str:
+    error_text = str(exc)
+    if "PHOTO_EXT_INVALID" in error_text:
+        return (
+            "Telegram rejected the cloned photo upload because the downloaded file ended up with an invalid "
+            "photo extension."
+        )
+    if "STICKER_" in error_text or "FILE_REFERENCE_" in error_text:
+        return f"Telegram rejected the cloned {media_kind} upload: {error_text}"
+    if "MEDIA_INVALID" in error_text or "IMAGE_PROCESS_FAILED" in error_text:
+        return f"Telegram could read the source {media_kind}, but refused the uploaded media: {error_text}"
+    return f"Telegram refused to upload the cloned {media_kind}: {error_text}"
+
+
+async def _perform_upload(media_kind: str, upload: Awaitable[Any]) -> Any:
+    try:
+        return await upload
+    except FloodWait as exc:
+        raise CopyError(
+            f"Telegram rate-limited the {media_kind} upload. Try again in {exc.value} seconds."
+        ) from exc
+    except RPCError as exc:
+        raise CopyError(_friendly_upload_error(exc, media_kind)) from exc
 
 
 async def reupload_message(
@@ -420,37 +457,49 @@ async def reupload_message(
     if message.photo:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_photo(target_chat, str(path), **kwargs)
+            await _perform_upload(
+                "photo", bot.send_photo(target_chat, str(path), **kwargs)
+            )
         finally:
             path.unlink(missing_ok=True)
     elif message.video:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_video(target_chat, str(path), **kwargs)
+            await _perform_upload(
+                "video", bot.send_video(target_chat, str(path), **kwargs)
+            )
         finally:
             path.unlink(missing_ok=True)
     elif message.animation:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_animation(target_chat, str(path), **kwargs)
+            await _perform_upload(
+                "animation", bot.send_animation(target_chat, str(path), **kwargs)
+            )
         finally:
             path.unlink(missing_ok=True)
     elif message.audio:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_audio(target_chat, str(path), **kwargs)
+            await _perform_upload(
+                "audio", bot.send_audio(target_chat, str(path), **kwargs)
+            )
         finally:
             path.unlink(missing_ok=True)
     elif message.voice:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_voice(target_chat, str(path), **kwargs)
+            await _perform_upload(
+                "voice message", bot.send_voice(target_chat, str(path), **kwargs)
+            )
         finally:
             path.unlink(missing_ok=True)
     elif message.video_note:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_video_note(target_chat, str(path))
+            await _perform_upload(
+                "video note", bot.send_video_note(target_chat, str(path))
+            )
             if caption:
                 await bot.send_message(target_chat, caption)
         finally:
@@ -458,13 +507,15 @@ async def reupload_message(
     elif message.sticker:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_sticker(target_chat, str(path))
+            await _perform_upload("sticker", bot.send_sticker(target_chat, str(path)))
         finally:
             path.unlink(missing_ok=True)
     elif message.document:
         path = await _download_for_reupload(message, download_dir)
         try:
-            await bot.send_document(target_chat, str(path), **kwargs)
+            await _perform_upload(
+                "document", bot.send_document(target_chat, str(path), **kwargs)
+            )
         finally:
             path.unlink(missing_ok=True)
     elif message.location:

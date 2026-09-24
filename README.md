@@ -56,5 +56,5 @@ py -m venv .venv
 - If `/copy` is used from a group, the sender must open the bot privately and press Start once so the bot can DM them.
 - `DEFAULT_USER_SESSION_STRING` is mandatory at startup.
 - Public links require `DEFAULT_USER_SESSION_STRING`; the bot does not ask for phone numbers in the server CLI.
-- Private login flow deletes phone/code/password messages when Telegram allows it.
+- Private login flow enters the Telegram login code with inline buttons instead of sending it as a chat message; phone and password messages are deleted when Telegram allows it.
 - Bots and user sessions cannot bypass Telegram access control. The default session or temporary login account must legitimately be able to access the source.

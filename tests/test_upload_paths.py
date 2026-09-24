@@ -1,8 +1,9 @@
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from forwardbot.copier import build_download_path
+from forwardbot.copier import _finalize_download_path, build_download_path
 
 
 class UploadPathTests(unittest.TestCase):
@@ -63,6 +64,20 @@ class UploadPathTests(unittest.TestCase):
 
         self.assertEqual(path.suffix, ".pdf")
         self.assertTrue(path.name.startswith("document_"))
+
+    def test_finalize_download_path_renames_file_when_suffix_is_wrong(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            downloaded = tmp_path / "telegram-file"
+            desired = tmp_path / "photo_fixed.jpg"
+            downloaded.write_bytes(b"image-bytes")
+
+            final_path = _finalize_download_path(downloaded, desired)
+
+            self.assertEqual(final_path, desired)
+            self.assertTrue(desired.exists())
+            self.assertFalse(downloaded.exists())
+            self.assertEqual(desired.read_bytes(), b"image-bytes")
 
 
 if __name__ == "__main__":
