@@ -18,7 +18,13 @@ from pyrogram.errors import (
     PeerIdInvalid,
     RPCError,
 )
-from pyrogram.types import Message
+from pyrogram.types import (
+    InputMediaAudio,
+    InputMediaDocument,
+    InputMediaPhoto,
+    InputMediaVideo,
+    Message,
+)
 
 from .links import MessageLink
 from .sessions import SessionManager, SessionUnavailable
@@ -205,8 +211,7 @@ async def legacy_copy_message(
 
         if getattr(source_message, "media_group_id", None):
             group = await user_client.get_media_group(link.chat_ref, link.message_id)
-            for item in group:
-                await reupload_message(bot, item, target_chat, download_dir)
+            await reupload_media_group(bot, group, target_chat, download_dir)
             return "Downloaded and re-uploaded the album with the user session."
 
         if _message_protected(source_message):
@@ -253,8 +258,7 @@ async def clone_with_client(
 
     if getattr(source_message, "media_group_id", None):
         group = await user_client.get_media_group(link.chat_ref, link.message_id)
-        for item in group:
-            await reupload_message(bot, item, target_chat, download_dir)
+        await reupload_media_group(bot, group, target_chat, download_dir)
         return "Cloned the album."
 
     await reupload_message(bot, source_message, target_chat, download_dir)
@@ -432,6 +436,51 @@ async def _perform_upload(media_kind: str, upload: Awaitable[Any]) -> Any:
         ) from exc
     except RPCError as exc:
         raise CopyError(_friendly_upload_error(exc, media_kind)) from exc
+
+
+def _album_media(message: Message, path: Path) -> Any | None:
+    caption = message.caption if getattr(message, "caption", None) else None
+    kwargs: dict[str, Any] = {"caption": caption} if caption else {}
+    media = str(path)
+    if message.photo:
+        return InputMediaPhoto(media, **kwargs)
+    if message.video:
+        return InputMediaVideo(media, **kwargs)
+    if message.audio:
+        return InputMediaAudio(media, **kwargs)
+    if message.document:
+        return InputMediaDocument(media, **kwargs)
+    return None
+
+
+async def reupload_media_group(
+    bot: Client,
+    messages: list[Message],
+    target_chat: str | int,
+    download_dir: Path,
+) -> None:
+    download_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    media: list[Any] = []
+    try:
+        for message in messages:
+            path = await _download_for_reupload(message, download_dir)
+            paths.append(path)
+            item = _album_media(message, path)
+            if item is None:
+                for uploaded_message in messages:
+                    await reupload_message(bot, uploaded_message, target_chat, download_dir)
+                return
+            media.append(item)
+
+        if not media:
+            raise CopyError("Telegram returned an empty media group.")
+        await _perform_upload(
+            "media group", bot.send_media_group(target_chat, media=media)
+        )
+    finally:
+        for path in paths:
+            path.unlink(missing_ok=True)
 
 
 async def reupload_message(
